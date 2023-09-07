@@ -1,4 +1,3 @@
-import config from "../config";
 import dotenv from "dotenv";
 import { doubleCsrf } from "csrf-csrf";
 import createError from "http-errors";
@@ -25,6 +24,10 @@ import logger from "morgan";
 
 dotenv.config();
 
+/**
+ * Winston Logger for audit logging
+ * @type {winston.Logger}
+ */
 const auditLog = winston.createLogger({
   transports: [
     new winston.transports.Console(),
@@ -33,21 +36,36 @@ const auditLog = winston.createLogger({
   level: process.env.LOGGING_LEVEL,
 });
 
-const port = process.env.port || 3000;
+/**
+ * Express application instance
+ * @type {express.Application}
+ */
 const app = express();
 
 app.use(helmet());
 app.use(logger("dev"));
+
+/**
+ * Rate limiter middleware to limit requests
+ * @type {express.RequestHandler}
+ */
 const rateLimiter = rateLimit({
   windowMs: +process.env.WINDOW_MS || 30 * 60 * 1000,
   max: +process.env.MAX_REQUESTS_PER_IP || 100,
 });
+
+/**
+ * Slow down middleware to prevent abuse
+ * @type {express.RequestHandler}
+ */
 const speedLimit = slowDown({
   windowMs: process.env.WINDOW_MS,
   delayAfter: process.env.DELAY_AFTER || 10,
   delayMs: process.env.DELAY_MS || 500,
 });
+
 app.use(rateLimiter, speedLimit);
+
 app.use((req, res, next) => {
   if (toobusy()) {
     res.status(503).send("Server too busy");
@@ -55,22 +73,30 @@ app.use((req, res, next) => {
     next();
   }
 });
+
 app.use(cors());
 app.use(xss());
 app.use(hpp());
+
 /**
- * Since attacker could make fake request and bypassing the size limit, it is a good idea to check the data from the request with the content-type. If the performance is a high priority in the case, then you could only check the data with the content-type which is interesting.
+ * Body parser middleware for URL-encoded data
+ * @type {express.RequestHandler}
  */
 app.use(
   urlencoded({ extended: true, limit: process.env.MAX_ALLOW_REQUEST_SIZE })
 );
+
+/**
+ * Body parser middleware for JSON data
+ * @type {express.RequestHandler}
+ */
 app.use(json({ limit: process.env.MAX_ALLOW_REQUEST_SIZE }));
 
 app.use(express.static(path.join(__dirname, "public")));
 
 app.use(cookieParser(process.env.COOKIES_SECRET));
 
-// csrf
+// CSRF protection
 const { invalidCsrfTokenError, generateToken, doubleCsrfProtection } =
   doubleCsrf({
     getSecret: () => process.env.CSRF_SECRET,
@@ -80,9 +106,13 @@ const { invalidCsrfTokenError, generateToken, doubleCsrfProtection } =
       secure: true,
       httpOnly: true,
       signed: true,
-    }, // for testing option only, should be updated for production
+    },
   });
 
+/**
+ * CSRF error handler middleware
+ * @type {express.RequestHandler}
+ */
 const csrfErrorHandler = (error, req, res, next) => {
   if (error == invalidCsrfTokenError) {
     res.status(403).json({
@@ -94,23 +124,34 @@ const csrfErrorHandler = (error, req, res, next) => {
 };
 
 /**
- * get the csrf token to send to client
+ * Get the CSRF token to send to the client
+ * @function
+ * @name GET/csrf-token
+ * @memberof module:app
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @returns {Object} - JSON response with the CSRF token
  */
 app.get("/csrf-token", (req, res) => {
   return res.json({
     token: generateToken(req, res),
   });
 });
+
 /**
- * epxample of using the csrf token to protect endpoint
+ * Example of using the CSRF token to protect an endpoint
+ * @function
+ * @name POST/protected_endpoint
+ * @memberof module:app
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
  */
 app.post(
   "/protected_endpoint",
   doubleCsrfProtection,
   csrfErrorHandler,
   (req, res) => {
-    // should consider using the express-validate to validate the input from user
-    // console.log(req.body);
+    // Should consider using the express-validate to validate the input from the user
     res.json({
       protected_endpoint: "form processed successfully",
     });
@@ -118,38 +159,64 @@ app.post(
 );
 
 /**
- * example of using the captcha
+ * Example of using a CAPTCHA
+ * @function
+ * @name GET/captcha
+ * @memberof module:app
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
  */
 app.get("/captcha", (req, res) => {
   const captcha = svgCaptcha.create();
   console.log(captcha.data);
 
   /**
-   * you could store the captcha in the session for later validation (need to install express-session first)
+   * You could store the CAPTCHA in the session for later validation
+   * (need to install express-session first)
    */
   // req.session.captcha = captcha.text;
   res.type("svg");
   res.status(200).send(captcha.data);
 });
 
-// catch 404 and forward to error handler
+/**
+ * Catch 404 and forward to error handler
+ * @function
+ * @memberof module:app
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @param {express.NextFunction} next - Express next middleware function
+ */
 app.use(function (req, res, next) {
   next(createError(404));
 });
 
-// error handler
+/**
+ * Error handler
+ * @function
+ * @memberof module:app
+ * @param {Error} err - The error object
+ * @param {express.Request} req - Express request object
+ * @param {express.Response} res - Express response object
+ * @param {express.NextFunction} next - Express next middleware function
+ */
 app.use(function (err, req, res, next) {
-  // for any error
-
   console.log(err.message);
   auditLog.error(err.message);
 
-  // render the error page
   res.status(err.status || 500);
   res.send(err.message);
 });
 
-app.listen(port, () => {
-  console.log(`server is running on the port ${port}`);
+/**
+ * Start the Express server
+ */
+app.listen(process.env.port || 3000, () => {
+  console.log(`Server is running on the port ${process.env.port || 3000}`);
 });
+
+/**
+ * Export the Express application
+ * @exports app
+ */
 export default app;
