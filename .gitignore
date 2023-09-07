@@ -26,3 +26,5 @@ yarn.lock
 # Ignore editor-specific files and directories
 .vscode/
 .idea/
+
+dist
