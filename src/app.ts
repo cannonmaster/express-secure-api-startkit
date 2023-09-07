@@ -49,22 +49,22 @@ app.use(logger("dev"));
  * Rate limiter middleware to limit requests
  * @type {express.RequestHandler}
  */
-// const rateLimiter = rateLimit({
-//   windowMs: +process.env.WINDOW_MS || 30 * 60 * 1000,
-//   max: +process.env.MAX_REQUESTS_PER_IP || 100,
-// });
+const rateLimiter = rateLimit({
+  windowMs: +process.env.WINDOW_MS || 30 * 60 * 1000,
+  max: +process.env.MAX_REQUESTS_PER_IP || 100,
+});
 
 /**
  * Slow down middleware to prevent abuse
  * @type {express.RequestHandler}
  */
 const speedLimit = slowDown({
-  windowMs: +process.env.WINDOW_MS,
+  windowMs: +process.env.WINDOW_MS || 30 * 60 * 1000,
   delayAfter: +process.env.DELAY_AFTER || 10,
   delayMs: +process.env.DELAY_MS || 500,
 });
 
-app.use(speedLimit);
+app.use(rateLimiter, speedLimit);
 
 app.use((req, res, next) => {
   if (toobusy()) {
